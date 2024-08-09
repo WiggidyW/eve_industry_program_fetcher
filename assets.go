@@ -1,11 +1,8 @@
 package main
 
-// this is one of those files where when you are refactoring,
-// you just leave it as is
-//
-// all the functions are small and that is good enough for me
-//
-// I'll leave the TODOs for posterity
+import (
+	"encoding/json"
+)
 
 type HasItemId interface {
 	GetItemId() int64
@@ -52,6 +49,8 @@ type SerializableOutAsset struct {
 }
 
 type SerializableLocationOutAssets map[int64][]SerializableOutAsset
+
+func (s SerializableLocationOutAssets) Serialize() ([]byte, error) { return json.Marshal(s) }
 
 func AssetsToSerializable(assets []AssetsEntry, blueprints []BlueprintsEntry) SerializableLocationOutAssets {
 	locationOutAssets := make(LocationOutAssets)

@@ -1,5 +1,9 @@
 package main
 
+import (
+	"encoding/json"
+)
+
 type CostIndicesSubEntry struct {
 	Activity  string  `json:"activity"`
 	CostIndex float64 `json:"cost_index"`
@@ -19,15 +23,12 @@ type SerializableCostIndicesValue struct {
 
 type SerializableCostIndices map[int32]SerializableCostIndicesValue
 
+func (s SerializableCostIndices) Serialize() ([]byte, error) { return json.Marshal(s) }
+
 func CostIndicesToSerializable(costIndices []CostIndicesEntry) SerializableCostIndices {
 	m := make(map[int32]SerializableCostIndicesValue)
 	for _, v := range costIndices {
-		value := SerializableCostIndicesValue{
-			Manufacturing: v.CostIndices[0].CostIndex,
-			Invention:     v.CostIndices[1].CostIndex,
-			Reaction:      v.CostIndices[2].CostIndex,
-			Copy:          v.CostIndices[3].CostIndex,
-		}
+		value := SerializableCostIndicesValue{}
 		for _, subEntry := range v.CostIndices {
 			switch subEntry.Activity {
 			case "manufacturing":
