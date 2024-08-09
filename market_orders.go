@@ -4,6 +4,167 @@ import (
 	"encoding/json"
 )
 
+func GetAndWriteMarketOrders(
+	accessToken string,
+	locationIds []int64,
+	regionIds []int32,
+) error {
+	serializableLocationOrders, err := GetSerializableLocationOrders(
+		accessToken,
+		locationIds,
+		regionIds,
+	)
+	if err != nil {
+		return err
+	}
+	return serializableLocationOrders.Write()
+}
+
+func GetSerializableLocationOrders(
+	accessToken string,
+	locationIds []int64,
+	regionIds []int32,
+) (
+	serializableLocationOrders SerializableLocationOrders,
+	err error,
+) {
+	regionOrders, structureOrders, err := GetOrders(
+		accessToken,
+		locationIds,
+		regionIds,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return OrdersToSerializable(regionOrders, structureOrders), nil
+}
+
+func GetOrders(
+	accessToken string,
+	locationIds []int64,
+	regionIds []int32,
+) (
+	regionOrders [][]OrdersRegionEntry,
+	structureOrders map[int64][]OrdersStructureEntry,
+	err error,
+) {
+	chnRegion := make(chan GetOrdersResult[OrdersRegionEntry, int32], len(regionIds))
+	for _, v := range regionIds {
+		go func(v int32) {
+			orders, err := GetRegionOrders(accessToken, v)
+			chnRegion <- GetOrdersResult[OrdersRegionEntry, int32]{Id: v, Model: orders, Err: err}
+		}(v)
+	}
+
+	chnStructure := make(chan GetOrdersResult[OrdersStructureEntry, int64], len(locationIds))
+	for _, v := range locationIds {
+		go func(v int64) {
+			orders, err := GetStructureOrders(accessToken, v)
+			chnStructure <- GetOrdersResult[OrdersStructureEntry, int64]{Id: v, Model: orders, Err: err}
+		}(v)
+	}
+
+	regionOrders = make([][]OrdersRegionEntry, 0, len(regionIds))
+	for i := 0; i < len(regionIds); i++ {
+		pageResult := <-chnRegion
+		if pageResult.Err != nil {
+			return nil, nil, pageResult.Err
+		}
+		regionOrders = append(regionOrders, pageResult.Model)
+	}
+
+	structureOrders = make(map[int64][]OrdersStructureEntry, len(locationIds))
+	for i := 0; i < len(locationIds); i++ {
+		pageResult := <-chnStructure
+		if pageResult.Err != nil {
+			return nil, nil, pageResult.Err
+		}
+		structureOrders[pageResult.Id] = pageResult.Model
+	}
+
+	return regionOrders, structureOrders, nil
+}
+
+type GetOrdersResult[E any, ID any] struct {
+	Id   ID
+	Model []E
+	Err   error
+}
+
+func GetStructureOrders(
+	accessToken string,
+	locationId int64,
+) (
+	orders []OrdersStructureEntry,
+	err error,
+) {
+
+	chn, pages, _, err := getPages[[]OrdersStructureEntry](
+		fmt.Sprintf(
+			"https://esi.evetech.net/latest/markets/structures/%d/?datasource=tranquility",
+			locationId,
+		),
+		accessToken,
+		func() *[]OrdersStructureEntry {
+			orders := make([]OrdersStructureEntry, 0, 1000)
+			return &orders
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	orders = make([]OrdersStructureEntry, 0, pages * 1000)
+	for i := 0; i < pages; i++ {
+		pageResult := <-chn
+		if pageResult.Err != nil {
+			return nil, pageResult.Err
+		}
+		orders = append(orders, pageResult.Model)
+	}
+
+	return orders, nil
+}
+
+func GetRegionOrders(
+	accessToken string,
+	regionId int32,
+) (
+	orders []OrdersRegionEntry,
+	err error,
+) {
+	accessToken, _, err := authenticate(clientId, clientSecret, refreshToken)
+	if err != nil {
+		return nil, err
+	}
+
+	chn, pages, _, err := getPages[[]OrdersRegionEntry](
+		fmt.Sprintf(
+			"https://esi.evetech.net/latest/markets/%d/orders/?datasource=tranquility",
+			regionId,
+		),
+		accessToken,
+		func() *[]OrdersRegionEntry {
+			orders := make([]OrdersRegionEntry, 0, 1000)
+			return &orders
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	orders = make([]OrdersRegionEntry, 0, pages * 1000)
+	for i := 0; i < pages; i++ {
+		pageResult := <-chn
+		if pageResult.Err != nil {
+			return nil, pageResult.Err
+		}
+		orders = append(orders, pageResult.Model)
+	}
+
+	return orders, nil
+}
+
 type OrdersRegionEntry struct {
 	LocationId   int64   `json:"location_id"`
 	Price        float64 `json:"price"`
@@ -34,12 +195,22 @@ type SerializableLocationOrders map[int64]SerializableOrders
 
 func (s SerializableLocationOrders) Serialize() ([]byte, error) { return json.Marshal(s) }
 
+func (s SerializableLocationOrders) Write() error {
+	data, err := s.Serialize()
+	if err != nil {
+		return err
+	}
+	return ioutil.WriteFile("market_orders.json", data, 0644)
+}
+
 func OrdersToSerializable(
-	regionOrders []OrdersRegionEntry,
+	regionOrders [][]OrdersRegionEntry,
 	structureOrders map[int64][]OrdersStructureEntry,
 ) SerializableLocationOrders {
 	serializableLocationOrders := make(SerializableLocationOrders)
-	WithRegionOrders(serializableLocationOrders, regionOrders)
+	for _, v := range regionOrders {
+		WithRegionOrders(serializableLocationOrders, v)
+	}
 	for k, v := range structureOrders {
 		WithStructureOrders(serializableLocationOrders, v, k)
 	}

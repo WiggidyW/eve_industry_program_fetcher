@@ -4,6 +4,48 @@ import (
 	"encoding/json"
 )
 
+func GetAndWriteCostIndices(
+	accessToken string,
+) error {
+	serializableCostIndices, err := GetSerializableCostIndices(accessToken)
+	if err != nil {
+		return err
+	}
+	return serializableCostIndices.Write()
+}
+
+func GetSerializableCostIndices(
+	accessToken string,
+) (
+	serializableCostIndices SerializableCostIndices,
+	err error,
+) {
+	costIndices, err := GetCostIndices(accessToken)
+	if err != nil {
+		return nil, err
+	}
+	return CostIndicesToSerializable(costIndices), nil
+}
+
+func GetCostIndices(
+	accessToken string,
+) (
+	costIndices []CostIndicesEntry,
+	err error,
+) {
+	costIndices = make([]CostIndicesEntry, 0)
+	_, err = getPage[[]CostIndicesEntry](
+		"https://esi.evetech.net/latest/industry/systems/?datasource=tranquility",
+		accessToken,
+		&costIndices,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return costIndices, nil
+}
+
 type CostIndicesSubEntry struct {
 	Activity  string  `json:"activity"`
 	CostIndex float64 `json:"cost_index"`
@@ -24,6 +66,14 @@ type SerializableCostIndicesValue struct {
 type SerializableCostIndices map[int32]SerializableCostIndicesValue
 
 func (s SerializableCostIndices) Serialize() ([]byte, error) { return json.Marshal(s) }
+
+func (s SerializableCostIndices) Write() error {
+	data, err := s.Serialize()
+	if err != nil {
+		return err
+	}
+	return ioutil.WriteFile("cost_indices.json", data, 0644)
+}
 
 func CostIndicesToSerializable(costIndices []CostIndicesEntry) SerializableCostIndices {
 	m := make(map[int32]SerializableCostIndicesValue)

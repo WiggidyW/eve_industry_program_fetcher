@@ -21,13 +21,15 @@ type EsiAuthRefreshResponse struct {
 }
 
 func authenticate(
-	refreshToken string,
 	clientId string,
 	clientSecret string,
+	refreshToken string,
 ) (
 	accessToken string,
+	expires time.Time,
 	err error,
 ) {
+	// build the request
 	req, err := http.NewRequest(
 		"GET",
 		"https://login.eveonline.com/v2/oauth/token",
@@ -37,26 +39,161 @@ func authenticate(
 		))),
 	)
 	if err != nil {
-		log.Fatal(err)
+		return "", time.Time{}, err
 	}
 	addHeaderUserAgent(req)
 	addHeaderWwwContentType(req)
 	addHeaderLoginHost(req)
 	addHeadBasicAuth(req, clientId, clientSecret)
 
+	// fetch the response
 	httpRep, close, err := doRequest(req)
 	if err != nil {
-		return "", err
+		return "", time.Time{}, err
 	}
 	defer close()
 
 	var rep EsiAuthRefreshResponse
 	err = json.NewDecoder(httpRep.Body).Decode(&rep)
 	if err != nil {
-		return "", err
+		return "", time.Time{}, err
 	}
 
-	return rep.AccessToken, nil
+	return rep.AccessToken, time.Now().Add(time.Duration(rep.ExpiresIn) * time.Second), nil
+}
+
+func getHead(
+	url string,
+	accessToken string,
+) (
+	pages int,
+	expires time.Time,
+	err error,
+) {
+	// build the request
+	req, err := http.NewRequest(
+		"GET",
+		url,
+		nil,
+	)
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+	addHeaderUserAgent(req)
+	addHeadBearerAuth(req, accessToken)
+
+	// fetch the response
+	httpRep, close, err := doRequest(req)
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+	defer close()
+
+	// parse the response headers
+	expires, err = parseHeadExpires(httpRep)
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+	pages, err = parseHeadPages(httpRep)
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+
+	return pages, expires, nil
+}
+
+func getPage[M any](
+	url string,
+	accessToken string,
+	model *M,
+) (
+	expires time.Time,
+	err error,
+) {
+	// build the request
+	req, err := http.NewRequest(
+		"GET",
+		url,
+		nil,
+	)
+	if err != nil {
+		return time.Time{}, err
+	}
+	addHeadJsonContentType(req)
+	addHeadBearerAuth(req, accessToken)
+
+	// fetch the response
+	httpRep, close, err := doRequest(req)
+	if err != nil {
+		return time.Time{}, err
+	}
+	defer close()
+
+	// parse the response headers
+	expires, err = parseHeadExpires(httpRep)
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	// decode the body
+	err = json.NewDecoder(httpRep.Body).Decode(model)
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	return expires, nil
+}
+
+const (
+	// only used for getPages
+	numRetries = 3
+	sleepBetweenRetries = 5 * time.Second
+)
+
+func getPages[M any](
+	url string,
+	accessToken string,
+	newModel func() *M,
+) (
+	chn <-chan PageResult[M],
+	pages int,
+	expires time.Time,
+	err error,
+) {
+	// get the head
+	pages, expires, err := getHead(url, accessToken)
+	if err != nil {
+		return nil, 0, time.Time{}, err
+	}
+
+	// create the channel
+	chn = make(chan PageResult[M], pages)
+
+	// fetch the pages
+	for i := 1; i <= pages; i++ {
+		go func(i int) {
+			model := newModel()
+			var err error
+			for j := 0; j <= numRetries; j++ {
+				pageUrl := fmt.Sprintf("%s?page=%d", url, i)
+				expires, err := getPage(pageUrl, accessToken, model)
+				if err == nil {
+					chn <- PageResult[M]{Model: *model, Expires: expires}
+					return
+				}
+				time.Sleep(sleepBetweenRetries)
+			}
+			chn <- PageResult[M]{Err: err}
+		}(i)
+	}
+
+	return chn, pages, expires, nil
+}
+
+type PageResult[M any] struct {
+	Model M
+	Expires time.Time
+	Err error
 }
 
 func addHeaderUserAgent(
@@ -69,6 +206,10 @@ func addHeaderWwwContentType(req *http.Request) {
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 }
 
+func addHeadJsonContentType(req *http.Request) {
+	req.Header.Add("Content-Type", "application/json")
+}
+
 func addHeaderLoginHost(req *http.Request) {
 	req.Header.Add("Host", "login.eveonline.com")
 }
@@ -78,6 +219,10 @@ func addHeadBasicAuth(req *http.Request, clientId string, clientSecret string) {
 		fmt.Sprintf("%s:%s", clientId, clientSecret),
 	))
 	req.Header.Add("Authorization", fmt.Sprintf("Basic %s", basic_auth))
+}
+
+func addHeadBearerAuth(req *http.Request, accessToken string) {
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", accessToken))
 }
 
 func doRequest(
@@ -101,103 +246,42 @@ func doRequest(
 
 func voidClose() error { return nil }
 
-// func getModel[M any](
-// 	x cache.Context,
-// 	url string,
-// 	method string,
-// 	auth *RefreshTokenAndApp,
-// 	newModel func() *M,
-// ) (
-// 	model M,
-// 	expires time.Time,
-// 	err error,
-// ) {
-// 	// get accessToken if auth is not nil
-// 	var accessToken string
-// 	if auth != nil {
-// 		accessToken, _, err = accessTokenGet(x, auth.RefreshToken, auth.App)
-// 		if err != nil {
-// 			return model, expires, err
-// 		}
-// 	}
+func parseHeadExpires(rep *http.Response) (
+	expires time.Time,
+	err error,
+) {
+	datestring := rep.Header.Get("Expires")
+	if datestring == "" {
+		return time.Time{}, fmt.Errorf("'Expires' missing from response headers")
+	}
 
-// 	// build the request
-// 	var req *http.Request
-// 	req, err = newRequest(x.Ctx(), method, url, nil)
-// 	if err != nil {
-// 		return model, expires, err
-// 	}
-// 	addHeadJsonContentType(req)
-// 	addHeadBearerAuth(req, accessToken)
+	expires, err = time.Parse(time.RFC1123, datestring)
+	if err != nil {
+		return time.Time{}, fmt.Errorf(
+			"error parsing 'Expires' header: %w",
+			err,
+		)
+	}
 
-// 	// fetch the response
-// 	var httpRep *http.Response
-// 	var close func() error
-// 	httpRep, close, err = doRequest(req)
-// 	defer close()
-// 	if err != nil {
-// 		return model, expires, err
-// 	}
+	return expires, nil
+}
 
-// 	// decode the body
-// 	model, err = decode(httpRep.Body, newRepOrDefault(newModel))
-// 	if err != nil {
-// 		return model, expires, err
-// 	}
+func parseHeadPages(rep *http.Response) (
+	pages int,
+	err error,
+) {
+	pagesstring := rep.Header.Get("X-Pages")
+	if pagesstring == "" {
+		return 0, fmt.Errorf("'X-Pages' missing from response headers")
+	}
 
-// 	// parse the response headers
-// 	expires, err = parseHeadExpires(httpRep)
-// 	if err != nil {
-// 		return model, expires, err
-// 	}
+	pages, err = strconv.Atoi(pagesstring)
+	if err != nil {
+		return 0, fmt.Errorf(
+			"error parsing 'X-Pages' header: %w",
+			err,
+		)
+	}
 
-// 	return model, expires, nil
-// }
-
-// func getHead(
-// 	x cache.Context,
-// 	url string,
-// 	auth *RefreshTokenAndApp,
-// ) (
-// 	pages int,
-// 	expires time.Time,
-// 	err error,
-// ) {
-// 	// get accessToken if auth is not nil
-// 	var accessToken string
-// 	if auth != nil {
-// 		accessToken, _, err = accessTokenGet(x, auth.RefreshToken, auth.App)
-// 		if err != nil {
-// 			return pages, expires, err
-// 		}
-// 	}
-
-// 	// build the request
-// 	var req *http.Request
-// 	req, err = newRequest(x.Ctx(), http.MethodHead, url, nil)
-// 	if err != nil {
-// 		return pages, expires, err
-// 	}
-// 	addHeadBearerAuth(req, accessToken)
-
-// 	// fetch the response
-// 	var httpRep *http.Response
-// 	var close func() error
-// 	httpRep, close, err = doRequest(req)
-// 	defer close()
-// 	if err != nil {
-// 		return pages, expires, err
-// 	}
-
-// 	// parse the response headers
-// 	expires, err = parseHeadExpires(httpRep)
-// 	if err != nil {
-// 		return pages, expires, err
-// 	}
-// 	pages, err = parseHeadPages(httpRep)
-// 	if err != nil {
-// 		return pages, expires, err
-// 	}
-
-// 	return pages, expires, nil
-// }
+	return pages, nil
+}
