@@ -5,9 +5,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"net/url"
+	"strconv"
+	"time"
 )
 
 var (
@@ -146,7 +147,7 @@ func getPage[M any](
 
 const (
 	// only used for getPages
-	numRetries = 3
+	numRetries          = 3
 	sleepBetweenRetries = 5 * time.Second
 )
 
@@ -155,19 +156,19 @@ func getPages[M any](
 	accessToken string,
 	newModel func() *M,
 ) (
-	chn <-chan PageResult[M],
+	chnRecv <-chan PageResult[M],
 	pages int,
 	expires time.Time,
 	err error,
 ) {
 	// get the head
-	pages, expires, err := getHead(url, accessToken)
+	pages, expires, err = getHead(url, accessToken)
 	if err != nil {
 		return nil, 0, time.Time{}, err
 	}
 
 	// create the channel
-	chn = make(chan PageResult[M], pages)
+	chn := make(chan PageResult[M], pages)
 
 	// fetch the pages
 	for i := 1; i <= pages; i++ {
@@ -191,9 +192,9 @@ func getPages[M any](
 }
 
 type PageResult[M any] struct {
-	Model M
+	Model   M
 	Expires time.Time
-	Err error
+	Err     error
 }
 
 func addHeaderUserAgent(

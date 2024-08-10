@@ -2,10 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"os"
 )
 
 func GetAndWriteAdjustedPrices(accessToken string) error {
-	adjustedPrices, err := GetAdjustedPrices(accessToken)
+	adjustedPrices, err := GetSerializableAdjustedPrices(accessToken)
 	if err != nil {
 		return err
 	}
@@ -54,7 +55,7 @@ func (s SerializableAdjustedPrices) Write() error {
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile("adjusted_prices.json", data, 0644)
+	return os.WriteFile("adjusted_prices.json", data, 0644)
 }
 
 func AdjustedPricesToSerializable(prices []AdjustedPriceEntry) SerializableAdjustedPrices {

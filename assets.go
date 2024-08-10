@@ -2,6 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"sync"
 )
 
 func GetAndWriteAssets(
@@ -90,7 +93,7 @@ func GetBlueprints(
 		if pageResult.Err != nil {
 			return nil, pageResult.Err
 		}
-		blueprints = append(blueprints, pageResult.Model)
+		blueprints = append(blueprints, pageResult.Model...)
 	}
 
 	return blueprints, nil
@@ -124,7 +127,7 @@ func GetAssets(
 		if pageResult.Err != nil {
 			return nil, pageResult.Err
 		}
-		assets = append(assets, pageResult.Model)
+		assets = append(assets, pageResult.Model...)
 	}
 
 	return assets, nil

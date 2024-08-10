@@ -2,14 +2,12 @@ package main
 
 import (
 	"flag"
-	"fmt"
-	"os"
 	"log"
 )
 
 func main() {
 	get_adjusted_prices := flag.Bool("adjusted_prices", false, "Get adjusted prices")
-	get_cost_indexes := flag.Bool("cost_indexes", false, "Get cost indexes")
+	get_cost_indices := flag.Bool("cost_indices", false, "Get cost indices")
 	get_market_orders := flag.Bool("market_orders", false, "Get market orders")
 	get_assets := flag.Bool("assets", false, "Get assets")
 	flag.Parse()
@@ -35,13 +33,15 @@ func main() {
 		i++
 		go func() {
 			results <- GetAndWriteAdjustedPrices(accessToken)
+			log.Println("Wrote adjusted prices")
 		}()
 	}
 
-	if *get_cost_indexes {
+	if *get_cost_indices {
 		i++
 		go func() {
-			results <- GetAndWriteCostIndexes(accessToken)
+			results <- GetAndWriteCostIndices(accessToken)
+			log.Println("Wrote cost indices")
 		}()
 	}
 
@@ -50,9 +50,10 @@ func main() {
 		go func() {
 			results <- GetAndWriteMarketOrders(
 				accessToken,
-				config.RegionIds,
 				config.LocationIds,
+				config.RegionIds,
 			)
+			log.Println("Wrote market orders")
 		}()
 	}
 
@@ -63,6 +64,7 @@ func main() {
 				accessToken,
 				config.CorporationId,
 			)
+			log.Println("Wrote assets")
 		}()
 	}
 

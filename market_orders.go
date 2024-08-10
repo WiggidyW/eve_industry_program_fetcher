@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
 )
 
 func GetAndWriteMarketOrders(
@@ -86,7 +88,7 @@ func GetOrders(
 }
 
 type GetOrdersResult[E any, ID any] struct {
-	Id   ID
+	Id    ID
 	Model []E
 	Err   error
 }
@@ -114,13 +116,13 @@ func GetStructureOrders(
 		return nil, err
 	}
 
-	orders = make([]OrdersStructureEntry, 0, pages * 1000)
+	orders = make([]OrdersStructureEntry, 0, pages*1000)
 	for i := 0; i < pages; i++ {
 		pageResult := <-chn
 		if pageResult.Err != nil {
 			return nil, pageResult.Err
 		}
-		orders = append(orders, pageResult.Model)
+		orders = append(orders, pageResult.Model...)
 	}
 
 	return orders, nil
@@ -133,11 +135,6 @@ func GetRegionOrders(
 	orders []OrdersRegionEntry,
 	err error,
 ) {
-	accessToken, _, err := authenticate(clientId, clientSecret, refreshToken)
-	if err != nil {
-		return nil, err
-	}
-
 	chn, pages, _, err := getPages[[]OrdersRegionEntry](
 		fmt.Sprintf(
 			"https://esi.evetech.net/latest/markets/%d/orders/?datasource=tranquility",
@@ -153,13 +150,13 @@ func GetRegionOrders(
 		return nil, err
 	}
 
-	orders = make([]OrdersRegionEntry, 0, pages * 1000)
+	orders = make([]OrdersRegionEntry, 0, pages*1000)
 	for i := 0; i < pages; i++ {
 		pageResult := <-chn
 		if pageResult.Err != nil {
 			return nil, pageResult.Err
 		}
-		orders = append(orders, pageResult.Model)
+		orders = append(orders, pageResult.Model...)
 	}
 
 	return orders, nil
@@ -200,7 +197,7 @@ func (s SerializableLocationOrders) Write() error {
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile("market_orders.json", data, 0644)
+	return os.WriteFile("market_orders.json", data, 0644)
 }
 
 func OrdersToSerializable(

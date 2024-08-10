@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"os"
 )
 
 func GetAndWriteCostIndices(
@@ -72,7 +73,7 @@ func (s SerializableCostIndices) Write() error {
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile("cost_indices.json", data, 0644)
+	return os.WriteFile("cost_indices.json", data, 0644)
 }
 
 func CostIndicesToSerializable(costIndices []CostIndicesEntry) SerializableCostIndices {
