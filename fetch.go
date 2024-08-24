@@ -32,7 +32,7 @@ func authenticate(
 ) {
 	// build the request
 	req, err := http.NewRequest(
-		"GET",
+		"POST",
 		"https://login.eveonline.com/v2/oauth/token",
 		bytes.NewBuffer([]byte(fmt.Sprintf(
 			`grant_type=refresh_token&refresh_token=%s`,
@@ -176,13 +176,17 @@ func getPages[M any](
 			model := newModel()
 			var err error
 			for j := 0; j <= numRetries; j++ {
-				pageUrl := fmt.Sprintf("%s?page=%d", url, i)
+				pageUrl := fmt.Sprintf("%s&page=%d", url, i)
 				expires, err := getPage(pageUrl, accessToken, model)
 				if err == nil {
 					chn <- PageResult[M]{Model: *model, Expires: expires}
 					return
+				} else {
+					fmt.Printf("error fetching '%s' page '%d': '%s'\n", url, i, err)
 				}
-				time.Sleep(sleepBetweenRetries)
+				if j < numRetries {
+					time.Sleep(sleepBetweenRetries)
+				}
 			}
 			chn <- PageResult[M]{Err: err}
 		}(i)

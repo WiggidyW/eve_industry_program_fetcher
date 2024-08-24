@@ -26,6 +26,8 @@ func main() {
 		log.Fatal(err)
 	}
 
+	log.Println("Authenticated")
+
 	i := 0
 	results := make(chan error, 4)
 

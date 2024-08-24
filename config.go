@@ -15,7 +15,7 @@ type Config struct {
 }
 
 func LoadConfig() (config Config, err error) {
-	file, err := os.Open("config.json")
+	file, err := os.Open("fetcher_config.json")
 	if err != nil {
 		return Config{}, err
 	}

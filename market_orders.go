@@ -219,6 +219,10 @@ func WithRegionOrders(
 	orders []OrdersRegionEntry,
 ) {
 	for _, v := range orders {
+		if v.VolumeRemain <= 0 {
+			continue
+		}
+
 		serializableOrders, ok := serializableLocationOrders[v.LocationId]
 		if !ok {
 			serializableOrders = SerializableOrders{}
@@ -250,7 +254,7 @@ func WithStructureOrders(
 	locationId int64,
 ) {
 	for _, v := range orders {
-		if v.IsBuyOrder {
+		if v.IsBuyOrder || v.VolumeRemain <= 0 {
 			continue
 		}
 
